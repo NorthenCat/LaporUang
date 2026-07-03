@@ -73,6 +73,7 @@ func main() {
 		r.Get("/api/transactions", handlers.GetTransactionsHandler)
 		r.Post("/api/transactions", handlers.CreateTransactionHandler)
 		r.Delete("/api/transactions/{id}", handlers.DeleteTransactionHandler)
+		r.Get("/api/transactions/{id}/attachment", handlers.GetTransactionAttachmentHandler)
 
 		// Budgets
 		r.Get("/api/budgets", handlers.GetBudgetsHandler)

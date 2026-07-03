@@ -11,6 +11,7 @@ import (
 	"backend/db"
 	"backend/models"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
 
@@ -105,4 +106,37 @@ func UploadReceiptHandler(w http.ResponseWriter, r *http.Request) {
 		CreatedAt:     time.Now(),
 		UpdatedAt:     time.Now(),
 	})
+}
+
+// GetTransactionAttachmentHandler retrieves attachment metadata for a transaction
+func GetTransactionAttachmentHandler(w http.ResponseWriter, r *http.Request) {
+	userID, ok := GetUserIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Unauthorized session", http.StatusUnauthorized)
+		return
+	}
+
+	transactionID := chi.URLParam(r, "id")
+	if transactionID == "" {
+		http.Error(w, "Transaction ID required", http.StatusBadRequest)
+		return
+	}
+
+	var att models.Attachment
+	err := db.DB.QueryRow(`
+		SELECT id, user_id, transaction_id, file_path, file_size, content_type, created_at, updated_at
+		FROM attachments
+		WHERE user_id = $1 AND transaction_id = $2 AND deleted_at IS NULL
+		ORDER BY created_at DESC LIMIT 1
+	`, userID, transactionID).Scan(
+		&att.ID, &att.UserID, &att.TransactionID, &att.FilePath, &att.FileSize, &att.ContentType, &att.CreatedAt, &att.UpdatedAt,
+	)
+
+	if err != nil {
+		http.Error(w, "Attachment not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(att)
 }

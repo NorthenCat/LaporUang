@@ -109,14 +109,13 @@ export default function TransactionsPage() {
     setReceiptFile(null);
     setAttachmentUrl(null);
     
-    // Look if attachment already exists in database (fetch transactions details if needed, or simply seek path)
-    // For this simple implementation, we can query attachments or let users upload.
-    // Let's check:
     try {
-      // Look up if this transaction has an attachment (mock search, or check if we can query attachments endpoint).
-      // We will check if the user settings has standard upload locations.
+      const att = await apiRequest(`/transactions/${txnId}/attachment`);
+      if (att && att.file_path) {
+        setAttachmentUrl(`http://localhost:8282${att.file_path}`);
+      }
     } catch {
-      // ignore
+      // no attachment found or error, ignore
     }
   };
 
