@@ -170,10 +170,19 @@ func GetProjectionsHandler(w http.ResponseWriter, r *http.Request) {
 	runningBalance := currentTotalBalance
 	hasDeficit := false
 
-	// Loop day by day
-	days := int(endDate.Sub(startDate).Hours()/24) + 1
+	// Define simulation start date (min of time.Now() and startDate)
+	now := time.Now()
+	nowNormalized := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	
+	simStart := startDate
+	if nowNormalized.Before(startDate) {
+		simStart = nowNormalized
+	}
+
+	// Loop day by day from simStart to endDate
+	days := int(endDate.Sub(simStart).Hours()/24) + 1
 	for i := 0; i < days; i++ {
-		currentDay := startDate.AddDate(0, 0, i)
+		currentDay := simStart.AddDate(0, 0, i)
 		currentDayStr := currentDay.Format("2006-01-02")
 		dayEvents := []string{}
 
@@ -197,19 +206,23 @@ func GetProjectionsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Apply recurring rules
-		for _, rl := range rules {
-			// Check if rule fits today
-			if isRuleDueOnDate(rl.startDate, rl.endDate, rl.frequency, currentDay) {
-				eventText := rl.categoryName
-				if rl.note != nil && *rl.note != "" {
-					eventText += " (" + *rl.note + ")"
-				}
-				dayEvents = append(dayEvents, eventText)
+		// We only apply recurring rules if the date is in the future (after today),
+		// because past rules are already reflected in the actual currentTotalBalance in DB.
+		if currentDay.After(nowNormalized) {
+			for _, rl := range rules {
+				// Check if rule fits today
+				if isRuleDueOnDate(rl.startDate, rl.endDate, rl.frequency, currentDay) {
+					eventText := rl.categoryName
+					if rl.note != nil && *rl.note != "" {
+						eventText += " (" + *rl.note + ")"
+					}
+					dayEvents = append(dayEvents, eventText)
 
-				if rl.flowType == "income" {
-					runningBalance += rl.amount
-				} else {
-					runningBalance -= rl.amount
+					if rl.flowType == "income" {
+						runningBalance += rl.amount
+					} else {
+						runningBalance -= rl.amount
+					}
 				}
 			}
 		}
@@ -225,12 +238,15 @@ func GetProjectionsHandler(w http.ResponseWriter, r *http.Request) {
 			hasDeficit = true
 		}
 
-		response.Points = append(response.Points, ProjectionPoint{
-			Date:         currentDayStr,
-			Balance:      runningBalance,
-			Events:       dayEvents,
-			IsBelowLimit: runningBalance < 0,
-		})
+		// Only append to response if currentDay is within the requested startDate-endDate range
+		if !currentDay.Before(startDate) {
+			response.Points = append(response.Points, ProjectionPoint{
+				Date:         currentDayStr,
+				Balance:      runningBalance,
+				Events:       dayEvents,
+				IsBelowLimit: runningBalance < 0,
+			})
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

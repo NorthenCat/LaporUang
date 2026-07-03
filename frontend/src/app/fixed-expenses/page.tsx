@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { MainLayout } from "@/components/templates/MainLayout";
 import { FormField } from "@/components/molecules/FormField";
 import { CurrencyFormField } from "@/components/molecules/CurrencyFormField";
+import { CustomSelect } from "@/components/atoms/CustomSelect";
 import { Button } from "@/components/atoms/Button";
 import { apiRequest } from "@/utils/api";
 import { 
@@ -71,6 +72,7 @@ export default function FixedExpensesPage() {
   const [walletId, setWalletId] = useState("");
   const [frequency, setFrequency] = useState("monthly");
   const [startDate, setStartDate] = useState(new Date().toISOString().substring(0, 10));
+  const [endDate, setEndDate] = useState("");
 
   // Pay form fields
   const [payWalletId, setPayWalletId] = useState("");
@@ -140,20 +142,30 @@ export default function FixedExpensesPage() {
     }
 
     try {
-      await apiRequest("/recurring-rules", "POST", {
+      const reqBody: any = {
         wallet_id: walletId,
         category_id: categoryId,
         amount: parsedAmount,
-        note: note ? note : undefined,
         type: ruleType,
-        frequency: frequency,
+        frequency,
         start_date: new Date(startDate).toISOString(),
-      });
+      };
+
+      if (note) reqBody.note = note;
+      if (endDate) {
+        // Set end date to the end of the selected day
+        const endD = new Date(endDate);
+        endD.setHours(23, 59, 59, 999);
+        reqBody.end_date = endD.toISOString();
+      }
+
+      await apiRequest("/recurring-rules", "POST", reqBody);
 
       setIsSaving(false);
       setIsCreateModalOpen(false);
       setAmount("");
       setNote("");
+      setEndDate("");
       fetchInitialData();
     } catch (err: any) {
       setErrorMsg(err.message || "Gagal membuat aturan rutin");
@@ -347,6 +359,18 @@ export default function FixedExpensesPage() {
                       <span>{isIncome ? "Dompet Penerima:" : "Dompet Pengirim:"}</span>
                       <span className="text-zinc-300 font-semibold">{rule.wallet_name}</span>
                     </div>
+                    {rule.end_date && (
+                      <div className="flex justify-between text-xs font-semibold text-zinc-400">
+                        <span>Berlaku s.d:</span>
+                        <span className="text-zinc-300 font-semibold">
+                          {new Date(rule.end_date).toLocaleDateString("id-ID", {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                          })}
+                        </span>
+                      </div>
+                    )}
                     {rule.next_due_date && (
                       <div className="flex justify-between text-xs font-semibold text-zinc-400">
                         <span>Tanggal Cair:</span>
@@ -417,46 +441,32 @@ export default function FixedExpensesPage() {
               {/* Type selector (Income or Expense) */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-semibold text-zinc-400 uppercase">Tipe Transaksi</label>
-                <select
+                <CustomSelect
                   value={ruleType}
-                  onChange={(e) => setRuleType(e.target.value)}
-                  className="w-full bg-slate-900 border border-zinc-800 text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-sky-500 focus:bg-slate-950"
-                >
-                  <option value="expense">Pengeluaran (Tagihan Rutin)</option>
-                  <option value="income">Pemasukan (Pendapatan Rutin)</option>
-                </select>
+                  onChange={(val) => setRuleType(String(val))}
+                  options={[
+                    { label: "Pengeluaran (Tagihan Rutin)", value: "expense" },
+                    { label: "Pemasukan (Pendapatan Rutin)", value: "income" },
+                  ]}
+                />
               </div>
 
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-semibold text-zinc-400 uppercase">Kategori</label>
-                <select
+                <CustomSelect
                   value={categoryId}
-                  onChange={(e) => setCategoryId(e.target.value)}
-                  className="w-full bg-slate-900 border border-zinc-800 text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-sky-500 focus:bg-slate-950"
-                >
-                  {formFilteredCategories.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(val) => setCategoryId(String(val))}
+                  options={formFilteredCategories.map((c) => ({ label: c.name, value: c.id }))}
+                />
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-zinc-400 uppercase">
-                  {ruleType === "income" ? "Dompet Penerima Dana" : "Sumber Dompet Default"}
-                </label>
-                <select
+                <label className="text-xs font-semibold text-zinc-400 uppercase">Dompet Sumber/Tujuan</label>
+                <CustomSelect
                   value={walletId}
-                  onChange={(e) => setWalletId(e.target.value)}
-                  className="w-full bg-slate-900 border border-zinc-800 text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-sky-500 focus:bg-slate-950"
-                >
-                  {wallets.map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.name} ({formatIDR(w.balance)})
-                    </option>
-                  ))}
-                </select>
+                  onChange={(val) => setWalletId(String(val))}
+                  options={wallets.map((w) => ({ label: w.name, value: w.id }))}
+                />
               </div>
 
               <CurrencyFormField
@@ -477,19 +487,19 @@ export default function FixedExpensesPage() {
                 id="note"
               />
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-zinc-400 uppercase">Frekuensi</label>
-                  <select
+                  <label className="text-xs font-semibold text-zinc-400 uppercase">Siklus</label>
+                  <CustomSelect
                     value={frequency}
-                    onChange={(e) => setFrequency(e.target.value)}
-                    className="w-full bg-slate-900 border border-zinc-800 text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-sky-500 focus:bg-slate-950"
-                  >
-                    <option value="weekly">Mingguan</option>
-                    <option value="biweekly">Dua Mingguan</option>
-                    <option value="monthly">Bulanan</option>
-                    <option value="yearly">Tahunan</option>
-                  </select>
+                    onChange={(val) => setFrequency(String(val))}
+                    options={[
+                      { label: "Harian", value: "daily" },
+                      { label: "Mingguan", value: "weekly" },
+                      { label: "Bulanan", value: "monthly" },
+                      { label: "Tahunan", value: "yearly" },
+                    ]}
+                  />
                 </div>
 
                 <FormField
@@ -499,6 +509,14 @@ export default function FixedExpensesPage() {
                   onChange={(e) => setStartDate(e.target.value)}
                   required
                   id="startDate"
+                />
+
+                <FormField
+                  label="Tanggal Berakhir (Opsional)"
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  id="endDate"
                 />
               </div>
 
@@ -554,22 +572,16 @@ export default function FixedExpensesPage() {
                 {selectedRule.note && <span className="text-xs text-zinc-500 italic mt-0.5">"{selectedRule.note}"</span>}
               </div>
 
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-zinc-400 uppercase">
-                  {selectedRule.type === "income" ? "Rekening Tujuan Penerima Dana" : "Pilih Rekening / Dompet Pembayar"}
-                </label>
-                <select
-                  value={payWalletId}
-                  onChange={(e) => setPayWalletId(e.target.value)}
-                  className="w-full bg-slate-900 border border-zinc-800 text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-sky-500 focus:bg-slate-950"
-                >
-                  {wallets.map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.name} ({formatIDR(w.balance)})
-                    </option>
-                  ))}
-                </select>
-              </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-semibold text-zinc-400 uppercase">
+                    {selectedRule.type === "income" ? "Terima ke Dompet" : "Bayar dari Dompet"}
+                  </label>
+                  <CustomSelect
+                    value={payWalletId}
+                    onChange={(val) => setPayWalletId(String(val))}
+                    options={wallets.map((w) => ({ label: w.name, value: w.id }))}
+                  />
+                </div>
 
               <FormField
                 label="Tanggal Pencatatan"

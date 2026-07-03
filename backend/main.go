@@ -103,6 +103,7 @@ func main() {
 		r.Get("/api/ai/models", handlers.GetAIModelsHandler)
 		r.Get("/api/ai/sessions", handlers.GetAIChatSessionsHandler)
 		r.Post("/api/ai/sessions", handlers.CreateAIChatSessionHandler)
+		r.Put("/api/ai/sessions/{sessionId}", handlers.UpdateAIChatSessionHandler)
 		r.Get("/api/ai/sessions/{sessionId}/messages", handlers.GetAIMessagesHandler)
 		r.Post("/api/ai/sessions/{sessionId}/chat", handlers.SendAIMessageHandler)
 
@@ -123,10 +124,10 @@ func main() {
 	// Start Server
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080"
+		port = "8282"
 	}
-	log.Printf("LaporUang Backend started on port %s", port)
-	log.Fatal(http.ListenAndServe(":"+port, r))
+	log.Printf("LaporUang Backend started on localhost:%s (Local Only)", port)
+	log.Fatal(http.ListenAndServe("127.0.0.1:"+port, r))
 }
 
 // CORSMiddleware handles Cross-Origin Resource Sharing for local development

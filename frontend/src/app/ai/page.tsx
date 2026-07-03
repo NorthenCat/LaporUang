@@ -16,6 +16,8 @@ import {
   ChevronRight,
   ShieldCheck,
   X,
+  Pencil,
+  Check,
 } from "lucide-react";
 
 interface Session {
@@ -44,6 +46,9 @@ export default function AIChatPage() {
   const [selectedModel, setSelectedModel] = useState("llama3");
   const [hasAPIKey, setHasAPIKey] = useState(false);
   const [isConfigSaving, setIsConfigSaving] = useState(false);
+
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState("");
 
   // Message states
   const [inputText, setInputText] = useState("");
@@ -142,6 +147,49 @@ export default function AIChatPage() {
     } catch {
       alert("Gagal membuat sesi obrolan baru");
     }
+  };
+
+  const handleRenameSession = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!editingSessionId || !editingTitle.trim()) return;
+    try {
+      await apiRequest(`/ai/sessions/${editingSessionId}`, "PUT", { title: editingTitle });
+      setSessions(sessions.map((s) => (s.id === editingSessionId ? { ...s, title: editingTitle } : s)));
+      setEditingSessionId(null);
+    } catch {
+      alert("Gagal mengubah nama percakapan");
+    }
+  };
+
+  const groupSessions = () => {
+    const groups: { [key: string]: Session[] } = {};
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const sevenDaysAgo = new Date(today);
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+    sessions.forEach((s) => {
+      const d = new Date(s.last_active_at);
+      const dStart = new Date(d);
+      dStart.setHours(0, 0, 0, 0);
+
+      let groupName = "Lama";
+      if (dStart.getTime() === today.getTime()) {
+        groupName = "Hari Ini";
+      } else if (dStart.getTime() === yesterday.getTime()) {
+        groupName = "Kemarin";
+      } else if (dStart.getTime() > sevenDaysAgo.getTime()) {
+        groupName = "7 Hari Terakhir";
+      } else {
+        groupName = d.toLocaleDateString("id-ID", { month: "long", year: "numeric" });
+      }
+
+      if (!groups[groupName]) groups[groupName] = [];
+      groups[groupName].push(s);
+    });
+    return groups;
   };
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -274,26 +322,75 @@ export default function AIChatPage() {
                   <div key={idx} className="h-10 bg-zinc-900/40 rounded-lg animate-pulse" />
                 ))
               ) : sessions.length > 0 ? (
-                sessions.map((s) => {
-                  const isActive = activeSessionId === s.id;
-                  return (
-                    <button
-                      key={s.id}
-                      onClick={() => {
-                        setActiveSessionId(s.id);
-                        setShowMobileSidebar(false);
-                      }}
-                      className={`w-full text-left px-3 py-2.5 rounded-lg text-xs font-semibold truncate transition flex justify-between items-center group cursor-pointer ${
-                        isActive
-                          ? "bg-sky-500/10 text-sky-400 border border-sky-500/20 shadow-[0_0_10px_rgba(56,189,248,0.15)]"
-                          : "text-zinc-400 hover:text-white hover:bg-slate-900/40"
-                      }`}
-                    >
-                      <span className="truncate">{s.title}</span>
-                      <ChevronRight className="h-3 w-3 opacity-0 group-hover:opacity-100 transition shrink-0" />
-                    </button>
-                  );
-                })
+                Object.entries(groupSessions()).map(([groupName, groupSessions]) => (
+                  <div key={groupName} className="mb-3">
+                    <div className="px-3 py-1 text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
+                      {groupName}
+                    </div>
+                    {groupSessions.map((s) => {
+                      const isActive = activeSessionId === s.id;
+                      const isEditing = editingSessionId === s.id;
+                      
+                      return (
+                        <div
+                          key={s.id}
+                          onClick={() => {
+                            if (!isEditing) {
+                              setActiveSessionId(s.id);
+                              setShowMobileSidebar(false);
+                            }
+                          }}
+                          className={`w-full text-left px-3 py-2.5 rounded-lg text-xs font-semibold transition flex flex-col justify-center group cursor-pointer mt-1 ${
+                            isActive
+                              ? "bg-sky-500/10 text-sky-400 border border-sky-500/20 shadow-[0_0_10px_rgba(56,189,248,0.15)]"
+                              : "text-zinc-400 hover:text-white hover:bg-slate-900/40"
+                          }`}
+                        >
+                          {isEditing ? (
+                            <form onSubmit={handleRenameSession} className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                value={editingTitle}
+                                onChange={(e) => setEditingTitle(e.target.value)}
+                                className="flex-1 bg-slate-950/50 border border-zinc-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-sky-500"
+                                autoFocus
+                              />
+                              <button type="submit" className="text-emerald-400 hover:text-emerald-300 shrink-0">
+                                <Check className="h-3.5 w-3.5" />
+                              </button>
+                            </form>
+                          ) : (
+                            <div className="flex justify-between items-center">
+                              <div className="flex flex-col min-w-0 flex-1">
+                                <span className="truncate">{s.title}</span>
+                                <span className="text-[9px] text-zinc-500 font-normal mt-0.5">
+                                  {new Date(s.last_active_at).toLocaleDateString("id-ID", {
+                                    day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit"
+                                  })}
+                                </span>
+                              </div>
+                              {isActive ? (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setEditingSessionId(s.id);
+                                    setEditingTitle(s.title);
+                                  }}
+                                  className="text-zinc-500 hover:text-sky-400 p-1 shrink-0 ml-1"
+                                  title="Ganti Nama Percakapan"
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </button>
+                              ) : (
+                                <ChevronRight className="h-3 w-3 opacity-0 group-hover:opacity-100 transition shrink-0 ml-1" />
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))
               ) : (
                 <div className="text-center py-8 text-xs text-zinc-600">Belum ada obrolan</div>
               )}

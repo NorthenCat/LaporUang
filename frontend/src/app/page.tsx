@@ -4,10 +4,10 @@ import React, { useState, useEffect, useRef } from "react";
 import { MainLayout } from "@/components/templates/MainLayout";
 import { WalletGrid } from "@/components/organisms/WalletGrid";
 import { BudgetRing } from "@/components/molecules/BudgetRing";
-import { TransactionModal } from "@/components/organisms/TransactionModal";
 import { Button } from "@/components/atoms/Button";
 import { FormField } from "@/components/molecules/FormField";
 import { CurrencyFormField } from "@/components/molecules/CurrencyFormField";
+import { CustomSelect } from "@/components/atoms/CustomSelect";
 import { apiRequest } from "@/utils/api";
 import { formatIDR } from "@/utils/money";
 import {
@@ -227,13 +227,6 @@ export default function Dashboard() {
             <h1 className="text-3xl font-extrabold tracking-tight text-white sm:text-4xl">Dashboard</h1>
             <p className="text-xs sm:text-sm text-zinc-400 font-medium">Analisis pengeluaran bulanan dan status kas Anda secara terpusat.</p>
           </div>
-          <Button
-            onClick={() => setIsTxModalOpen(true)}
-            variant="primary"
-            className="flex items-center gap-1.5 shrink-0 px-5 py-2.5 rounded-full font-bold text-xs uppercase tracking-wider"
-          >
-            <Plus className="h-4 w-4" /> Catat Transaksi
-          </Button>
         </div>
 
         {/* Top Highlight Summary Card */}
@@ -449,11 +442,11 @@ export default function Dashboard() {
                   return (
                     <div
                       key={txn.id}
-                      className="glass-panel p-4 rounded-2xl flex items-center justify-between border border-zinc-800 hover:border-sky-500/25 transition duration-200"
+                      className="glass-panel p-4 rounded-2xl flex items-center justify-between border border-zinc-800 hover:border-sky-500/25 transition duration-200 gap-4"
                     >
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
                         <div
-                          className={`p-2.5 rounded-xl ${
+                          className={`p-2.5 rounded-xl shrink-0 ${
                             isIncome
                               ? "bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 glow-tag-cyan"
                               : isExpense
@@ -469,11 +462,11 @@ export default function Dashboard() {
                             <ReceiptText className="h-4.5 w-4.5" />
                           )}
                         </div>
-                        <div className="flex flex-col">
-                          <span className="text-sm font-bold text-slate-100">
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-sm font-bold text-slate-100 truncate">
                             {txn.note || (isIncome ? "Pemasukan" : isExpense ? "Pengeluaran" : "Penyesuaian")}
                           </span>
-                          <span className="text-[10px] text-zinc-400 font-semibold">
+                          <span className="text-[10px] text-zinc-400 font-semibold truncate">
                             {txn.merchant ? `${txn.merchant} • ` : ""}
                             {new Date(txn.date).toLocaleDateString("id-ID", {
                               day: "numeric",
@@ -485,12 +478,11 @@ export default function Dashboard() {
                       </div>
 
                       <span
-                        className={`text-sm font-extrabold tracking-tight ${
+                        className={`text-sm font-extrabold tracking-tight shrink-0 whitespace-nowrap ${
                           isIncome ? "text-cyan-400" : isExpense ? "text-indigo-400" : "text-sky-400"
                         }`}
                       >
-                        {isExpense ? "-" : isIncome ? "+" : ""}
-                        {formatIDR(txn.amount)}
+                        {isExpense ? "-" : isIncome ? "+" : txn.amount < 0 ? "-" : "+"}{formatIDR(Math.abs(txn.amount))}
                       </span>
                     </div>
                   );
@@ -510,13 +502,6 @@ export default function Dashboard() {
         </div>
 
       </div>
-
-      {/* Catat Transaksi Modal */}
-      <TransactionModal
-        isOpen={isTxModalOpen}
-        onClose={() => setIsTxModalOpen(false)}
-        onSuccess={fetchDashboardData}
-      />
 
       {/* Tambah Dompet Modal */}
       {isWalletModalOpen ? (
@@ -561,17 +546,17 @@ export default function Dashboard() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="flex flex-col gap-1.5">
                   <label className="text-xs font-semibold text-zinc-400">TIPE DOMPET</label>
-                  <select
+                  <CustomSelect
                     value={walletType}
-                    onChange={(e) => setWalletType(e.target.value)}
-                    className="w-full bg-slate-900 border border-zinc-800 text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-sky-500 focus:bg-slate-950"
-                  >
-                    <option value="cash">Tunai (Cash)</option>
-                    <option value="bank">Rekening Bank</option>
-                    <option value="e-wallet">e-Wallet</option>
-                    <option value="card">Kartu Kredit</option>
-                    <option value="savings">Tabungan</option>
-                  </select>
+                    onChange={(val) => setWalletType(String(val))}
+                    options={[
+                      { label: "Tunai (Cash)", value: "cash" },
+                      { label: "Rekening Bank", value: "bank" },
+                      { label: "e-Wallet", value: "e-wallet" },
+                      { label: "Kartu Kredit", value: "card" },
+                      { label: "Tabungan", value: "savings" },
+                    ]}
+                  />
                 </div>
 
                 <div className="flex flex-col gap-1.5">
@@ -643,17 +628,11 @@ export default function Dashboard() {
                 <label className="text-xs font-semibold text-zinc-400 uppercase">
                   {selectedRule.type === "income" ? "Rekening Penerima Dana" : "Pilih Rekening Pembayar"}
                 </label>
-                <select
+                <CustomSelect
                   value={payWalletId}
-                  onChange={(e) => setPayWalletId(e.target.value)}
-                  className="w-full bg-slate-900 border border-zinc-800 text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-sky-500 focus:bg-slate-950"
-                >
-                  {wallets.map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.name} ({formatIDR(w.balance)})
-                    </option>
-                  ))}
-                </select>
+                  onChange={(val) => setPayWalletId(String(val))}
+                  options={wallets.map((w) => ({ label: w.name, value: w.id }))}
+                />
               </div>
 
               <FormField

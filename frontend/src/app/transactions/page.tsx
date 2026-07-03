@@ -5,6 +5,8 @@ import { MainLayout } from "@/components/templates/MainLayout";
 import { apiRequest, uploadReceiptRequest } from "@/utils/api";
 import { formatIDR } from "@/utils/money";
 import { Button } from "@/components/atoms/Button";
+import { TransactionModal } from "@/components/organisms/TransactionModal";
+import { CustomSelect } from "@/components/atoms/CustomSelect";
 import { FormField } from "@/components/molecules/FormField";
 import {
   Search,
@@ -50,15 +52,20 @@ export default function TransactionsPage() {
   const [isLoading, setIsLoading] = useState(true);
 
   // Filter states
+  const now = new Date();
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState<string>("all");
   const [selectedWallet, setSelectedWallet] = useState<string>("all");
+  const [selectedMonth, setSelectedMonth] = useState<number>(now.getMonth());
+  const [selectedYear, setSelectedYear] = useState<number>(now.getFullYear());
 
   // Receipt modal state
   const [activeReceiptTxId, setActiveReceiptTxId] = useState<string | null>(null);
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [uploadingReceipt, setUploadingReceipt] = useState(false);
   const [attachmentUrl, setAttachmentUrl] = useState<string | null>(null);
+  
+  const [isTxModalOpen, setIsTxModalOpen] = useState(false);
 
   useEffect(() => {
     fetchInitialData();
@@ -121,7 +128,7 @@ export default function TransactionsPage() {
     try {
       const res = await uploadReceiptRequest(receiptFile, activeReceiptTxId);
       if (res && res.file_path) {
-        setAttachmentUrl(`http://localhost:8080${res.file_path}`);
+        setAttachmentUrl(`http://localhost:8282${res.file_path}`);
         alert("Lampiran kuitansi berhasil diunggah!");
       }
     } catch (err: any) {
@@ -133,14 +140,18 @@ export default function TransactionsPage() {
 
   // Filter & Search Logic
   const filteredTxns = transactions.filter((t) => {
-    const matchesSearch = t.note?.toLowerCase().includes(search.toLowerCase()) || 
-                          t.merchant?.toLowerCase().includes(search.toLowerCase()) ||
-                          false;
+    const searchLower = search.toLowerCase();
+    const matchesSearch = (t.note?.toLowerCase() || "").includes(searchLower) || 
+                          (t.merchant?.toLowerCase() || "").includes(searchLower);
     
     const matchesType = filterType === "all" || t.type === filterType;
     const matchesWallet = selectedWallet === "all" || t.wallet_id === selectedWallet;
 
-    return (search === "" || matchesSearch) && matchesType && matchesWallet;
+    const d = new Date(t.date);
+    const matchesMonth = d.getMonth() === selectedMonth;
+    const matchesYear = d.getFullYear() === selectedYear;
+
+    return (search === "" || matchesSearch) && matchesType && matchesWallet && matchesMonth && matchesYear;
   });
 
   // Group by Date helper
@@ -163,9 +174,11 @@ export default function TransactionsPage() {
       <div className="flex flex-col gap-8 w-full max-w-4xl mx-auto">
         
         {/* Header */}
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-extrabold tracking-tight text-white sm:text-3xl">Ledger Transaksi</h1>
-          <p className="text-xs sm:text-sm text-zinc-500">Daftar menyeluruh transaksi kas masuk dan keluar akun Anda.</p>
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div className="flex flex-col gap-1">
+            <h1 className="text-2xl font-extrabold tracking-tight text-white sm:text-3xl">Ledger Transaksi</h1>
+            <p className="text-xs sm:text-sm text-zinc-500">Daftar menyeluruh transaksi kas masuk dan keluar akun Anda.</p>
+          </div>
         </div>
 
         {/* Filter controls */}
@@ -183,31 +196,71 @@ export default function TransactionsPage() {
 
           <div className="flex gap-3">
             {/* Filter Wallet */}
-            <select
+            <CustomSelect
               value={selectedWallet}
-              onChange={(e) => setSelectedWallet(e.target.value)}
-              className="bg-slate-900 border border-zinc-800 text-slate-100 rounded-lg px-3 py-2 text-xs font-semibold focus:outline-none focus:border-sky-500 focus:bg-slate-950"
-            >
-              <option value="all">Semua Dompet</option>
-              {wallets.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name}
-                </option>
-              ))}
-            </select>
+              onChange={(val) => setSelectedWallet(String(val))}
+              className="w-40"
+              options={[
+                { label: "Semua Dompet", value: "all" },
+                ...wallets.map((w) => ({ label: w.name, value: w.id }))
+              ]}
+            />
 
             {/* Filter Type */}
-            <select
+            <CustomSelect
               value={filterType}
-              onChange={(e) => setFilterType(e.target.value)}
-              className="bg-slate-900 border border-zinc-800 text-slate-100 rounded-lg px-3 py-2 text-xs font-semibold focus:outline-none focus:border-sky-500 focus:bg-slate-950"
-            >
-              <option value="all">Semua Tipe</option>
-              <option value="income">Pemasukan</option>
-              <option value="expense">Pengeluaran</option>
-              <option value="transfer">Transfer</option>
-              <option value="adjustment">Penyesuaian</option>
-            </select>
+              onChange={(val) => setFilterType(String(val))}
+              className="w-36"
+              options={[
+                { label: "Semua Tipe", value: "all" },
+                { label: "Pemasukan", value: "income" },
+                { label: "Pengeluaran", value: "expense" },
+                { label: "Transfer", value: "transfer" },
+                { label: "Penyesuaian", value: "adjustment" },
+              ]}
+            />
+          </div>
+        </div>
+
+        {/* Action and Time Filter */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <Button
+            onClick={() => setIsTxModalOpen(true)}
+            variant="primary"
+            className="flex items-center justify-center gap-1.5 shrink-0 w-full sm:w-auto px-6 py-3 rounded-full font-bold text-xs uppercase tracking-wider shadow-lg shadow-sky-500/20"
+          >
+            <Plus className="h-4 w-4" /> Catat Transaksi
+          </Button>
+          
+          <div className="flex gap-3 w-full sm:w-auto">
+            <CustomSelect
+              value={selectedMonth}
+              onChange={(val) => setSelectedMonth(Number(val))}
+              className="w-full sm:w-36"
+              options={[
+                { label: "Januari", value: 0 },
+                { label: "Februari", value: 1 },
+                { label: "Maret", value: 2 },
+                { label: "April", value: 3 },
+                { label: "Mei", value: 4 },
+                { label: "Juni", value: 5 },
+                { label: "Juli", value: 6 },
+                { label: "Agustus", value: 7 },
+                { label: "September", value: 8 },
+                { label: "Oktober", value: 9 },
+                { label: "November", value: 10 },
+                { label: "Desember", value: 11 },
+              ]}
+            />
+            <CustomSelect
+              value={selectedYear}
+              onChange={(val) => setSelectedYear(Number(val))}
+              className="w-full sm:w-32"
+              options={Array.from({ length: 5 }).map((_, i) => {
+                const year = new Date().getFullYear() - 2 + i;
+                return { label: String(year), value: year };
+              })}
+            />
           </div>
         </div>
 
@@ -238,67 +291,50 @@ export default function TransactionsPage() {
                     return (
                       <div
                         key={txn.id}
-                        className="glass-panel p-4 rounded-xl flex items-center justify-between border border-zinc-800 hover:border-zinc-700 transition gap-4"
+                        className="relative glass-panel p-4 rounded-xl flex items-center justify-between border border-zinc-800/50 hover:border-zinc-700 transition-colors group gap-4 overflow-hidden"
                       >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div
-                            className={`p-2.5 rounded-lg shrink-0 ${
-                              isIncome
-                                ? "bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 glow-tag-cyan"
-                                : isExpense
-                                ? "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 glow-tag-indigo"
-                                : "bg-sky-500/10 text-sky-400 border border-sky-500/20 glow-tag-sky"
-                            }`}
-                          >
-                            {isIncome ? (
-                              <ArrowUpRight className="h-4.5 w-4.5" />
-                            ) : txn.type === "transfer" ? (
-                              <ArrowRightLeft className="h-4.5 w-4.5" />
-                            ) : isExpense ? (
-                              <ArrowDownRight className="h-4.5 w-4.5" />
-                            ) : (
-                              <Settings2 className="h-4.5 w-4.5" />
-                            )}
+                        <div className="flex items-center gap-4 min-w-0">
+                          <div className={`p-2.5 rounded-full flex items-center justify-center shrink-0 ${
+                            isExpense ? "bg-rose-500/10 text-rose-400" : isIncome ? "bg-emerald-500/10 text-emerald-400" : "bg-sky-500/10 text-sky-400"
+                          }`}>
+                            {isExpense ? <ArrowDownRight className="h-4 w-4" /> : isIncome ? <ArrowUpRight className="h-4 w-4" /> : <ArrowRightLeft className="h-4 w-4" />}
                           </div>
-
+                          
                           <div className="flex flex-col min-w-0">
-                            <span className="text-sm font-semibold text-white truncate">
-                              {txn.note || (isIncome ? "Pemasukan" : isExpense ? "Pengeluaran" : "Penyesuaian")}
+                            <span className="text-sm font-bold text-slate-200 truncate">
+                              {txn.note || "Transaksi"}
                             </span>
                             <span className="text-xs text-zinc-500 truncate">
-                              {txn.merchant ? `${txn.merchant} • ` : ""}
                               {walletName} • {categoryName}
+                              {txn.merchant && ` • ${txn.merchant}`}
                             </span>
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-4 shrink-0">
-                          <span
-                            className={`text-sm font-extrabold tracking-tight ${
-                              isIncome ? "text-cyan-400" : isExpense ? "text-indigo-400" : "text-sky-400"
-                            }`}
-                          >
-                            {isExpense ? "-" : isIncome ? "+" : ""}
-                            {formatIDR(txn.amount)}
+                        <div className="flex items-center gap-3 shrink-0">
+                          <span className={`font-bold text-sm tracking-wide whitespace-nowrap ${
+                            isExpense ? "text-rose-400" : isIncome ? "text-emerald-400" : "text-sky-400"
+                          }`}>
+                            {isExpense ? "-" : isIncome ? "+" : txn.amount < 0 ? "-" : "+"}{formatIDR(Math.abs(txn.amount))}
                           </span>
-
-                          {/* Quick receipt upload/view button */}
-                          <button
-                            onClick={() => handleOpenReceiptModal(txn.id)}
-                            className="p-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-500 hover:text-white rounded border border-zinc-800 cursor-pointer"
-                            title="Lampirkan Kuitansi"
-                          >
-                            <Paperclip className="h-3.5 w-3.5" />
-                          </button>
-
-                          {/* Delete button */}
-                          <button
-                            onClick={() => handleDelete(txn.id)}
-                            className="p-1.5 bg-zinc-900 hover:bg-red-950/20 text-zinc-500 hover:text-red-400 rounded border border-zinc-800 cursor-pointer"
-                            title="Hapus Transaksi"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
+                          
+                          {/* Actions */}
+                          <div className="absolute right-4 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900/90 backdrop-blur-md p-1.5 rounded-lg border border-zinc-700/50 shadow-lg">
+                            <button
+                              onClick={() => handleOpenReceiptModal(txn.id)}
+                              className="p-1.5 rounded-md hover:bg-slate-800 text-zinc-400 hover:text-sky-400 transition-colors"
+                              title="Lampiran Kuitansi"
+                            >
+                              <Paperclip className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDelete(txn.id)}
+                              className="p-1.5 rounded-md hover:bg-slate-800 text-zinc-400 hover:text-rose-400 transition-colors"
+                              title="Hapus Transaksi"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );
@@ -309,10 +345,13 @@ export default function TransactionsPage() {
           </div>
         ) : (
           <div className="glass-panel p-16 rounded-2xl flex flex-col items-center justify-center text-center gap-3 border border-zinc-800 border-dashed">
-            <Filter className="h-10 w-10 text-zinc-600 stroke-[1.5]" />
-            <div className="flex flex-col">
-              <span className="text-xs text-zinc-500 font-semibold">Tidak ditemukan hasil transaksi</span>
-              <span className="text-[10px] text-zinc-600">Coba ubah kata kunci pencarian atau bersihkan filter dompet/tipe.</span>
+            <Search className="h-10 w-10 text-zinc-600 stroke-[1.5]" />
+            <div className="flex flex-col gap-1">
+              <span className="text-sm text-zinc-300 font-bold">Tidak ada transaksi</span>
+              <span className="text-xs text-zinc-500">
+                Data transaksi tidak ditemukan pada bulan dan tahun ini.<br />
+                Cobalah memilih bulan lain di filter atas.
+              </span>
             </div>
           </div>
         )}
@@ -381,6 +420,15 @@ export default function TransactionsPage() {
           </div>
         </div>
       ) : null}
+
+      <TransactionModal
+        isOpen={isTxModalOpen}
+        onClose={() => setIsTxModalOpen(false)}
+        onSuccess={() => {
+          setIsTxModalOpen(false);
+          fetchInitialData();
+        }}
+      />
     </MainLayout>
   );
 }

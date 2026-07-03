@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { MainLayout } from "@/components/templates/MainLayout";
 import { Button } from "@/components/atoms/Button";
 import { FormField } from "@/components/molecules/FormField";
+import { CustomSelect } from "@/components/atoms/CustomSelect";
 import { apiRequest } from "@/utils/api";
 import { ShieldAlert, ShieldCheck, Key, Settings, User } from "lucide-react";
 
@@ -175,30 +176,30 @@ export default function SettingsPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="flex flex-col gap-1.5">
                     <label className="text-xs font-semibold text-zinc-400 uppercase">Unit Mata Uang</label>
-                    <select
+                    <CustomSelect
                       value={currency}
-                      onChange={(e) => setCurrency(e.target.value)}
-                      className="w-full bg-slate-900 border border-zinc-800 text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-sky-500 focus:bg-slate-950"
-                    >
-                      <option value="IDR">IDR (Rupiah)</option>
-                      <option value="USD">USD (Dolar US)</option>
-                      <option value="EUR">EUR (Euro)</option>
-                      <option value="SGD">SGD (Dolar Singapore)</option>
-                    </select>
+                      onChange={(val) => setCurrency(String(val))}
+                      options={[
+                        { label: "IDR (Rupiah)", value: "IDR" },
+                        { label: "USD (Dolar US)", value: "USD" },
+                        { label: "EUR (Euro)", value: "EUR" },
+                        { label: "SGD (Dolar Singapore)", value: "SGD" },
+                      ]}
+                    />
                   </div>
 
                   <div className="flex flex-col gap-1.5">
                     <label className="text-xs font-semibold text-zinc-400 uppercase">Idle Timeout Penguncian</label>
-                    <select
+                    <CustomSelect
                       value={idleTimeout}
-                      onChange={(e) => setIdleTimeout(parseInt(e.target.value, 10))}
-                      className="w-full bg-slate-900 border border-zinc-800 text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-sky-500 focus:bg-slate-950"
-                    >
-                      <option value={60}>1 Menit</option>
-                      <option value={300}>5 Menit</option>
-                      <option value={900}>15 Menit</option>
-                      <option value={1800}>30 Menit</option>
-                    </select>
+                      onChange={(val) => setIdleTimeout(Number(val))}
+                      options={[
+                        { label: "1 Menit", value: 60 },
+                        { label: "5 Menit", value: 300 },
+                        { label: "15 Menit", value: 900 },
+                        { label: "30 Menit", value: 1800 },
+                      ]}
+                    />
                   </div>
                 </div>
 

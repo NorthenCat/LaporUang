@@ -41,7 +41,7 @@ type Transaction struct {
 	ID               string     `json:"id" db:"id"`
 	UserID           string     `json:"user_id" db:"user_id"`
 	WalletID         string     `json:"wallet_id" db:"wallet_id"`
-	CategoryID       string     `json:"category_id" db:"category_id"`
+	CategoryID       *string    `json:"category_id" db:"category_id"`
 	Type             string     `json:"type" db:"type"`
 	Amount           int64      `json:"amount" db:"amount"`
 	Date             time.Time  `json:"date" db:"date"`

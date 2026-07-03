@@ -7,6 +7,7 @@ import { Button } from "../atoms/Button";
 import { FormField } from "../molecules/FormField";
 import { CurrencyFormField } from "../molecules/CurrencyFormField";
 import { CurrencyInput } from "../atoms/CurrencyInput";
+import { CustomSelect } from "../atoms/CustomSelect";
 
 interface Wallet {
   id: string;
@@ -206,13 +207,16 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           ) : null}
 
           {/* Type Tab Selector */}
-          <div className="grid grid-cols-4 gap-1.5 p-1 bg-slate-950/80 border border-zinc-800/80 rounded-lg">
+          <div className="flex gap-1.5 p-1 bg-slate-950/80 border border-zinc-800/80 rounded-lg overflow-x-auto no-scrollbar">
             {(["expense", "income", "transfer", "adjustment"] as const).map((t) => (
               <button
                 key={t}
                 type="button"
-                onClick={() => setType(t)}
-                className={`py-1.5 text-xs font-bold rounded-md capitalize transition cursor-pointer ${
+                onClick={(e) => {
+                  setType(t);
+                  e.currentTarget.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+                }}
+                className={`flex-1 min-w-max px-3 py-1.5 text-[11px] sm:text-xs font-bold rounded-md capitalize transition cursor-pointer whitespace-nowrap ${
                   type === t
                     ? "bg-gradient-to-r from-sky-400 to-blue-600 text-white shadow-[0_0_10px_rgba(56,189,248,0.35)]"
                     : "text-zinc-400 hover:text-slate-100"
@@ -226,60 +230,41 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           <div className="grid grid-cols-2 gap-4">
             {/* Wallet Selection */}
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-zinc-400 uppercase">
+              <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">
                 {type === "transfer" ? "Dari Dompet" : "Dompet"}
               </label>
-              <select
+              <CustomSelect
                 value={walletId}
-                onChange={(e) => setWalletId(e.target.value)}
-                className="w-full bg-slate-900 border border-zinc-800 text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-sky-500"
-              >
-                {wallets.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.name}
-                  </option>
-                ))}
-              </select>
+                onChange={(val) => setWalletId(String(val))}
+                options={wallets.map((w) => ({ label: w.name, value: w.id }))}
+              />
             </div>
 
             {/* To Wallet Selection (only for transfers) */}
             {type === "transfer" ? (
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-zinc-400 uppercase">Tujuan Dompet</label>
-                <select
+                <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">Tujuan Dompet</label>
+                <CustomSelect
                   value={toWalletId}
-                  onChange={(e) => setToWalletId(e.target.value)}
-                  className="w-full bg-slate-900 border border-zinc-800 text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-sky-500"
-                >
-                  {wallets.map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.name}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(val) => setToWalletId(String(val))}
+                  options={wallets.map((w) => ({ label: w.name, value: w.id }))}
+                />
               </div>
             ) : type !== "adjustment" ? (
-              /* Category Selection (Not for adjustments or transfers) */
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-zinc-400 uppercase">Kategori</label>
-                <select
+                <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">Kategori</label>
+                <CustomSelect
                   value={categoryId}
                   disabled={isSplit}
-                  onChange={(e) => setCategoryId(e.target.value)}
-                  className="w-full bg-slate-900 border border-zinc-800 text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-sky-500 disabled:opacity-40"
-                >
-                  {categories
+                  onChange={(val) => setCategoryId(String(val))}
+                  options={categories
                     .filter((c) => c.type === targetType)
-                    .map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                </select>
+                    .map((c) => ({ label: c.name, value: c.id }))}
+                />
               </div>
             ) : (
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-zinc-400 uppercase">Info Adjusment</label>
+                <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">Info Adjusment</label>
                 <div className="text-xs text-zinc-500 py-2.5 px-1 bg-zinc-900/40 rounded border border-zinc-800/40">
                   Mengubah saldo dompet langsung ke jumlah target.
                 </div>
@@ -341,20 +326,17 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                   <span className="text-[11px] font-bold text-zinc-400 tracking-wider uppercase">Pecahan Anggaran</span>
                   {splits.map((sp, idx) => (
                     <div key={idx} className="flex gap-2 items-center">
-                      <select
+                      <CustomSelect
                         value={sp.categoryId}
-                        onChange={(e) => handleSplitChange(idx, "categoryId", e.target.value)}
-                        className="bg-slate-900 border border-zinc-800 text-slate-100 rounded-lg px-2 py-1 text-xs focus:outline-none w-1/3 focus:border-sky-500"
-                      >
-                        <option value="">Kategori</option>
-                        {categories
-                          .filter((c) => c.type === "expense")
-                          .map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.name}
-                            </option>
-                          ))}
-                      </select>
+                        onChange={(val) => handleSplitChange(idx, "categoryId", String(val))}
+                        options={[
+                          { label: "Kategori", value: "" },
+                          ...categories
+                            .filter((c) => c.type === "expense")
+                            .map((c) => ({ label: c.name, value: c.id }))
+                        ]}
+                        className="w-1/3"
+                      />
 
                       <CurrencyInput
                         placeholder="Jumlah"

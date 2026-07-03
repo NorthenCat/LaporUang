@@ -227,6 +227,53 @@ func CreateAIChatSessionHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// UpdateAIChatSessionHandler renames a chat session
+func UpdateAIChatSessionHandler(w http.ResponseWriter, r *http.Request) {
+	userID, ok := GetUserIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Unauthorized session", http.StatusUnauthorized)
+		return
+	}
+
+	sessionID := chi.URLParam(r, "sessionId")
+	if sessionID == "" {
+		http.Error(w, "Session ID required", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		Title string `json:"title"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Title == "" {
+		http.Error(w, "Valid title is required", http.StatusBadRequest)
+		return
+	}
+
+	now := time.Now()
+	res, err := db.DB.Exec(`
+		UPDATE ai_chat_sessions
+		SET title = $1, updated_at = $2
+		WHERE id = $3 AND user_id = $4 AND deleted_at IS NULL
+	`, req.Title, now, sessionID, userID)
+
+	if err != nil {
+		http.Error(w, "Failed to update session: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	rowsAffected, _ := res.RowsAffected()
+	if rowsAffected == 0 {
+		http.Error(w, "Session not found or unauthorized", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"id":    sessionID,
+		"title": req.Title,
+	})
+}
+
 // GetAIMessagesHandler gets messages in a session
 func GetAIMessagesHandler(w http.ResponseWriter, r *http.Request) {
 	userID, ok := GetUserIDFromContext(r.Context())
@@ -264,6 +311,198 @@ func GetAIMessagesHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(messages)
+}
+
+// ---------------------- AI TOOLS DEFS ----------------------
+
+type openAIToolCallFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+type openAIToolCall struct {
+	Id       string                 `json:"id"`
+	Type     string                 `json:"type"`
+	Function openAIToolCallFunction `json:"function"`
+}
+type openAIMessage struct {
+	Role       string           `json:"role"`
+	Content    *string          `json:"content,omitempty"`
+	ToolCalls  []openAIToolCall `json:"tool_calls,omitempty"`
+	ToolCallId string           `json:"tool_call_id,omitempty"`
+}
+
+type functionProperty struct {
+	Type        string `json:"type"`
+	Description string `json:"description"`
+}
+type functionParameters struct {
+	Type       string                      `json:"type"`
+	Properties map[string]functionProperty `json:"properties"`
+	Required   []string                    `json:"required,omitempty"`
+}
+type functionDefinition struct {
+	Name        string             `json:"name"`
+	Description string             `json:"description"`
+	Parameters  functionParameters `json:"parameters"`
+}
+type toolDefinition struct {
+	Type     string             `json:"type"`
+	Function functionDefinition `json:"function"`
+}
+
+func getAIAvailableTools() []toolDefinition {
+	return []toolDefinition{
+		{
+			Type: "function",
+			Function: functionDefinition{
+				Name:        "get_wallets_balance",
+				Description: "Mengambil daftar seluruh dompet (rekening, e-wallet, tunai) pengguna beserta saldo terkininya.",
+				Parameters: functionParameters{
+					Type:       "object",
+					Properties: map[string]functionProperty{},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: functionDefinition{
+				Name:        "get_recent_transactions",
+				Description: "Mengambil riwayat transaksi terbaru pengguna. Bisa digunakan untuk melihat kemana saja uang dibelanjakan atau dari mana uang masuk.",
+				Parameters: functionParameters{
+					Type: "object",
+					Properties: map[string]functionProperty{
+						"limit": {
+							Type:        "integer",
+							Description: "Jumlah maksimum transaksi yang ingin diambil (default: 10, max: 50).",
+						},
+						"type": {
+							Type:        "string",
+							Description: "Filter berdasarkan tipe transaksi. Pilihan: 'income', 'expense', 'transfer'. Kosongkan untuk melihat semua tipe.",
+						},
+					},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: functionDefinition{
+				Name:        "get_recurring_rules",
+				Description: "Mengambil daftar tagihan rutin (pengeluaran) atau pendapatan rutin pengguna beserta jadwal tanggal cair/jatuh temponya.",
+				Parameters: functionParameters{
+					Type:       "object",
+					Properties: map[string]functionProperty{},
+				},
+			},
+		},
+	}
+}
+
+func executeAITool(userID, toolName, arguments string) string {
+	switch toolName {
+	case "get_wallets_balance":
+		rows, err := db.DB.Query("SELECT name, balance, type FROM wallets WHERE user_id = $1 AND deleted_at IS NULL", userID)
+		if err != nil {
+			return `{"error": "Failed to query database"}`
+		}
+		defer rows.Close()
+		type w struct {
+			Name    string `json:"name"`
+			Balance int64  `json:"balance"`
+			Type    string `json:"type"`
+		}
+		var ws []w
+		for rows.Next() {
+			var w1 w
+			rows.Scan(&w1.Name, &w1.Balance, &w1.Type)
+			ws = append(ws, w1)
+		}
+		b, _ := json.Marshal(ws)
+		return string(b)
+
+	case "get_recent_transactions":
+		var args struct {
+			Limit int    `json:"limit"`
+			Type  string `json:"type"`
+		}
+		json.Unmarshal([]byte(arguments), &args)
+		limit := 10
+		if args.Limit > 0 && args.Limit <= 50 {
+			limit = args.Limit
+		}
+
+		query := `SELECT t.amount, t.type, t.date, t.note, c.name as category_name, w.name as wallet_name 
+				  FROM transactions t 
+				  LEFT JOIN categories c ON t.category_id = c.id 
+				  LEFT JOIN wallets w ON t.wallet_id = w.id
+				  WHERE t.user_id = $1 AND t.deleted_at IS NULL`
+		argsList := []interface{}{userID}
+		if args.Type == "income" || args.Type == "expense" || args.Type == "transfer" {
+			query += ` AND t.type = $2`
+			argsList = append(argsList, args.Type)
+		}
+		query += fmt.Sprintf(` ORDER BY t.date DESC LIMIT %d`, limit)
+
+		rows, err := db.DB.Query(query, argsList...)
+		if err != nil {
+			return `{"error": "Failed to query database"}`
+		}
+		defer rows.Close()
+		type tx struct {
+			Amount       int64  `json:"amount"`
+			Type         string `json:"type"`
+			Date         string `json:"date"`
+			Note         string `json:"note"`
+			CategoryName string `json:"category_name"`
+			WalletName   string `json:"wallet_name"`
+		}
+		var txs []tx
+		for rows.Next() {
+			var t1 tx
+			var date time.Time
+			var note, catName, wName sql.NullString
+			rows.Scan(&t1.Amount, &t1.Type, &date, &note, &catName, &wName)
+			t1.Date = date.Format("2006-01-02")
+			t1.Note = note.String
+			t1.CategoryName = catName.String
+			t1.WalletName = wName.String
+			txs = append(txs, t1)
+		}
+		b, _ := json.Marshal(txs)
+		return string(b)
+
+	case "get_recurring_rules":
+		rows, err := db.DB.Query(`SELECT type, frequency, amount, start_date, next_due_date, note FROM recurring_rules WHERE user_id = $1 AND deleted_at IS NULL`, userID)
+		if err != nil {
+			return `{"error": "Failed to query database"}`
+		}
+		defer rows.Close()
+		type rule struct {
+			Type        string `json:"type"`
+			Frequency   string `json:"frequency"`
+			Amount      int64  `json:"amount"`
+			StartDate   string `json:"start_date"`
+			NextDueDate string `json:"next_due_date"`
+			Note        string `json:"note"`
+		}
+		var rules []rule
+		for rows.Next() {
+			var r1 rule
+			var sd time.Time
+			var ndd *time.Time
+			var n sql.NullString
+			rows.Scan(&r1.Type, &r1.Frequency, &r1.Amount, &sd, &ndd, &n)
+			r1.StartDate = sd.Format("2006-01-02")
+			if ndd != nil {
+				r1.NextDueDate = ndd.Format("2006-01-02")
+			}
+			r1.Note = n.String
+			rules = append(rules, r1)
+		}
+		b, _ := json.Marshal(rules)
+		return string(b)
+	}
+
+	return `{"error": "Unknown tool"}`
 }
 
 // SendAIMessageHandler proxies chat request to AI and saves history
@@ -329,24 +568,28 @@ func SendAIMessageHandler(w http.ResponseWriter, r *http.Request) {
 		LIMIT 15
 	`, sessionID, userID)
 
-	type openAIMessage struct {
-		Role    string `json:"role"`
-		Content string `json:"content"`
-	}
 	openAIMessages := []openAIMessage{}
 
 	// System Prompt
-	systemContent := fmt.Sprintf(`Anda adalah LaporUang AI Assistant, asisten keuangan pribadi cerdas dan ramah.
-Tugas Anda adalah membantu pengguna menganalisis keuangan mereka, memberikan rekomendasi berhemat, mendeteksi anomali, merencanakan budget, dan memberikan insight bermanfaat.
+	systemContent := fmt.Sprintf(`Anda adalah Artha, Asisten Keuangan Pribadi dan Penasihat Finansial (Financial Advisor) yang cerdas, super analitis, dan ramah dari LaporUang.
+Tugas Anda adalah membantu pengguna menganalisis keuangan, memberikan rekomendasi berhemat, mendeteksi anomali, merencanakan budget, dan memberikan insight bermanfaat.
 
-Berikut adalah Ringkasan Finansial Pengguna terkini untuk referensi Anda (mohon dijaga kerahasiaannya dan gunakan hanya untuk analisis):
+Karakter Anda:
+- Sangat profesional, berwibawa namun bersahabat.
+- Selalu berbicara berdasarkan data numerik yang akurat (tidak berhalusinasi).
+- Selalu memberikan insight taktis, actionable (bisa langsung dipraktikkan).
+- Selalu gunakan format Rupiah (Rp) yang rapi.
+- Tanggapi dalam Bahasa Indonesia yang baik dan natural.
+
+Berikut adalah Ringkasan Finansial Pengguna terkini untuk referensi awal Anda:
 %s
 
-Harap bersikap profesional, beri saran yang taktis, gunakan mata uang Rupiah (Rp) jika membicarakan uang, dan tanggapi dalam Bahasa Indonesia yang baik dan mudah dimengerti.`, summaryText)
+PENTING: Jika Anda butuh data lebih spesifik (seperti daftar transaksi riil, detail dompet, atau tagihan rutin pengguna), JANGAN BERHALUSINASI! Gunakan fungsi/tools yang tersedia untuk mengambil data langsung dari database sebelum Anda menjawab.`, summaryText)
 
+	// We use pointer for content so we can send null if needed
 	openAIMessages = append(openAIMessages, openAIMessage{
 		Role:    "system",
-		Content: systemContent,
+		Content: &systemContent,
 	})
 
 	if err == nil {
@@ -358,74 +601,113 @@ Harap bersikap profesional, beri saran yang taktis, gunakan mata uang Rupiah (Rp
 				if sender == "ai" {
 					role = "assistant"
 				}
-				openAIMessages = append(openAIMessages, openAIMessage{Role: role, Content: content})
+				
+				// Make a copy of content since we take its pointer
+				msgContent := content
+				openAIMessages = append(openAIMessages, openAIMessage{Role: role, Content: &msgContent})
 			}
 		}
 	}
 
 	// Add current message if not already added
-	// (it was saved to DB, history query might include or exclude depending on query timing, let's build the request carefully)
-	// If the history query returned empty or didn't fetch it, append it manually
 	if len(openAIMessages) == 1 { // only system prompt
-		openAIMessages = append(openAIMessages, openAIMessage{Role: "user", Content: req.Message})
+		msgContent := req.Message
+		openAIMessages = append(openAIMessages, openAIMessage{Role: "user", Content: &msgContent})
 	}
 
-	// 4. Construct request to OpenAI-compatible endpoint
-	reqBodyObj := map[string]interface{}{
-		"model":       model,
-		"messages":    openAIMessages,
-		"temperature": 0.7,
-	}
-	jsonBytes, _ := json.Marshal(reqBodyObj)
+	// 4. Construct request to OpenAI-compatible endpoint with Tool Calling Loop
+	var aiContent string
+	tools := getAIAvailableTools()
 
-	aiURL := fmt.Sprintf("%s/chat/completions", baseURL)
-	aiReq, err := http.NewRequest("POST", aiURL, bytes.NewBuffer(jsonBytes))
-	if err != nil {
-		http.Error(w, "Failed to construct AI request: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	aiReq.Header.Set("Content-Type", "application/json")
-	if apiKey != "" {
-		aiReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+	maxIterations := 3
+	for i := 0; i < maxIterations; i++ {
+		reqBodyObj := map[string]interface{}{
+			"model":       model,
+			"messages":    openAIMessages,
+			"temperature": 0.7,
+			"tools":       tools,
+			"tool_choice": "auto",
+		}
+
+		jsonBytes, _ := json.Marshal(reqBodyObj)
+		aiURL := fmt.Sprintf("%s/chat/completions", baseURL)
+		aiReq, err := http.NewRequest("POST", aiURL, bytes.NewBuffer(jsonBytes))
+		if err != nil {
+			http.Error(w, "Failed to construct AI request: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		aiReq.Header.Set("Content-Type", "application/json")
+		if apiKey != "" {
+			aiReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+		}
+
+		client := &http.Client{Timeout: 60 * time.Second}
+		aiResp, err := client.Do(aiReq)
+		if err != nil {
+			http.Error(w, "Failed to contact AI endpoint: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+
+		bodyBytes, err := io.ReadAll(aiResp.Body)
+		aiResp.Body.Close()
+		if err != nil {
+			http.Error(w, "Failed to read response from AI service", http.StatusInternalServerError)
+			return
+		}
+
+		if aiResp.StatusCode != http.StatusOK {
+			http.Error(w, fmt.Sprintf("AI provider returned error code %d: %s", aiResp.StatusCode, string(bodyBytes)), http.StatusBadGateway)
+			return
+		}
+
+		// Parse AI Response
+		var aiRespBody struct {
+			Choices []struct {
+				Message struct {
+					Role      string           `json:"role"`
+					Content   *string          `json:"content"`
+					ToolCalls []openAIToolCall `json:"tool_calls"`
+				} `json:"message"`
+			} `json:"choices"`
+		}
+
+		err = json.Unmarshal(bodyBytes, &aiRespBody)
+		if err != nil || len(aiRespBody.Choices) == 0 {
+			http.Error(w, "Failed to parse AI completion details: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		choiceMessage := aiRespBody.Choices[0].Message
+
+		// If no tool calls, we are done
+		if len(choiceMessage.ToolCalls) == 0 {
+			if choiceMessage.Content != nil {
+				aiContent = *choiceMessage.Content
+			}
+			break
+		}
+
+		// Append the assistant's message with tool_calls to history
+		openAIMessages = append(openAIMessages, openAIMessage{
+			Role:      "assistant",
+			Content:   choiceMessage.Content,
+			ToolCalls: choiceMessage.ToolCalls,
+		})
+
+		// Execute tools and append results
+		for _, tc := range choiceMessage.ToolCalls {
+			toolResult := executeAITool(userID, tc.Function.Name, tc.Function.Arguments)
+			openAIMessages = append(openAIMessages, openAIMessage{
+				Role:       "tool",
+				Content:    &toolResult,
+				ToolCallId: tc.Id,
+			})
+		}
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	aiResp, err := client.Do(aiReq)
-	if err != nil {
-		http.Error(w, "Failed to contact AI endpoint: "+err.Error(), http.StatusBadGateway)
-		return
+	if aiContent == "" {
+		aiContent = "Maaf, saya mengalami kendala teknis saat memproses permintaan Anda (terlalu banyak panggilan tools atau respons kosong)."
 	}
-	defer aiResp.Body.Close()
-
-	if aiResp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(aiResp.Body)
-		http.Error(w, fmt.Sprintf("AI provider returned error code %d: %s", aiResp.StatusCode, string(bodyBytes)), http.StatusBadGateway)
-		return
-	}
-
-	// 5. Parse AI Response
-	var aiRespBody struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-
-	// We decode from aiResp.Body
-	bodyBytes, err := io.ReadAll(aiResp.Body)
-	if err != nil {
-		http.Error(w, "Failed to read response from AI service", http.StatusInternalServerError)
-		return
-	}
-	
-	err = json.Unmarshal(bodyBytes, &aiRespBody)
-	if err != nil || len(aiRespBody.Choices) == 0 {
-		http.Error(w, "Failed to parse AI completion details: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	aiContent := aiRespBody.Choices[0].Message.Content
 
 	// 6. Save AI reply to database
 	aiMsgID := uuid.New().String()

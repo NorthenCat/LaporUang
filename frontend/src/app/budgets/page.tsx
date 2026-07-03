@@ -7,6 +7,7 @@ import { formatIDR } from "@/utils/money";
 import { Button } from "@/components/atoms/Button";
 import { FormField } from "@/components/molecules/FormField";
 import { CurrencyFormField } from "@/components/molecules/CurrencyFormField";
+import { CustomSelect } from "@/components/atoms/CustomSelect";
 import { PieChart, Plus, Trash2, X, AlertTriangle } from "lucide-react";
 
 interface Budget {
@@ -41,6 +42,10 @@ export default function BudgetsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [budgetPeriodType, setBudgetPeriodType] = useState<"monthly" | "custom">("monthly");
+
+  const now = new Date();
+  const [selectedMonth, setSelectedMonth] = useState<number>(now.getMonth());
+  const [selectedYear, setSelectedYear] = useState<number>(now.getFullYear());
 
   useEffect(() => {
     fetchInitialData();
@@ -118,6 +123,11 @@ export default function BudgetsPage() {
     }
   };
 
+  const filteredBudgets = budgets.filter((b) => {
+    const d = new Date(b.period_start);
+    return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
+  });
+
   return (
     <MainLayout>
       <div className="flex flex-col gap-8 w-full max-w-4xl mx-auto">
@@ -137,6 +147,38 @@ export default function BudgetsPage() {
           </Button>
         </div>
 
+        {/* Filters */}
+        <div className="glass-panel p-4 rounded-2xl flex gap-4 border border-zinc-800 shrink-0">
+          <CustomSelect
+            value={selectedMonth}
+            onChange={(val) => setSelectedMonth(Number(val))}
+            className="flex-1 sm:flex-none sm:w-40"
+            options={[
+              { label: "Januari", value: 0 },
+              { label: "Februari", value: 1 },
+              { label: "Maret", value: 2 },
+              { label: "April", value: 3 },
+              { label: "Mei", value: 4 },
+              { label: "Juni", value: 5 },
+              { label: "Juli", value: 6 },
+              { label: "Agustus", value: 7 },
+              { label: "September", value: 8 },
+              { label: "Oktober", value: 9 },
+              { label: "November", value: 10 },
+              { label: "Desember", value: 11 },
+            ]}
+          />
+          <CustomSelect
+            value={selectedYear}
+            onChange={(val) => setSelectedYear(Number(val))}
+            className="flex-1 sm:flex-none sm:w-32"
+            options={[...Array(5)].map((_, i) => {
+              const year = new Date().getFullYear() - 2 + i;
+              return { label: String(year), value: year };
+            })}
+          />
+        </div>
+
         {/* Budgets List with Progress bars */}
         {isLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -144,9 +186,9 @@ export default function BudgetsPage() {
               <div key={idx} className="h-28 glass-panel rounded-xl animate-pulse" />
             ))}
           </div>
-        ) : budgets.length > 0 ? (
+        ) : filteredBudgets.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-            {budgets.map((b) => {
+            {filteredBudgets.map((b) => {
               const percent = b.amount > 0 ? Math.round((b.actual_spending / b.amount) * 100) : 0;
               const isOver = b.actual_spending > b.amount;
               const barWidth = Math.min(percent, 100) + "%";
@@ -253,27 +295,25 @@ export default function BudgetsPage() {
                 </div>
               ) : null}
 
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-zinc-400 uppercase">Kategori</label>
-                <select
+              <div className="flex flex-col gap-2">
+                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
+                  Kategori
+                </label>
+                <CustomSelect
                   value={categoryId}
-                  onChange={(e) => setCategoryId(e.target.value)}
-                  className="w-full bg-slate-900 border border-zinc-800 text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-sky-500 focus:bg-slate-950"
-                >
-                  {categories.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(val) => setCategoryId(String(val))}
+                  options={categories.map((c) => ({ label: c.name, value: c.id }))}
+                />
               </div>
 
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-zinc-400 uppercase">Tipe Periode Anggaran</label>
-                <select
+              <div className="flex flex-col gap-2">
+                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
+                  Tipe Periode
+                </label>
+                <CustomSelect
                   value={budgetPeriodType}
-                  onChange={(e) => {
-                    const type = e.target.value as "monthly" | "custom";
+                  onChange={(val) => {
+                    const type = val as "monthly" | "custom";
                     setBudgetPeriodType(type);
                     if (type === "monthly") {
                       const now = new Date();
@@ -287,11 +327,11 @@ export default function BudgetsPage() {
                       setPeriodEnd(endOfMonth);
                     }
                   }}
-                  className="w-full bg-slate-900 border border-zinc-800 text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-sky-500 focus:bg-slate-950"
-                >
-                  <option value="monthly">Bulanan (Otomatis Bulan Berjalan)</option>
-                  <option value="custom">Rentang Waktu (Kustom Tanggal)</option>
-                </select>
+                  options={[
+                    { label: "Bulanan (Otomatis Bulan Berjalan)", value: "monthly" },
+                    { label: "Rentang Waktu (Kustom Tanggal)", value: "custom" },
+                  ]}
+                />
               </div>
 
               <CurrencyFormField
