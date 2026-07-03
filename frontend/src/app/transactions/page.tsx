@@ -137,6 +137,20 @@ export default function TransactionsPage() {
     }
   };
 
+  const handleDeleteReceipt = async () => {
+    if (!activeReceiptTxId) return;
+    if (!confirm("Apakah Anda yakin ingin menghapus kuitansi ini?")) return;
+
+    try {
+      await apiRequest(`/transactions/${activeReceiptTxId}/attachment`, "DELETE");
+      setAttachmentUrl(null);
+      setReceiptFile(null);
+      alert("Kuitansi berhasil dihapus.");
+    } catch (err: any) {
+      alert(err.message || "Gagal menghapus kuitansi");
+    }
+  };
+
   // Filter & Search Logic
   const filteredTxns = transactions.filter((t) => {
     const searchLower = search.toLowerCase();
@@ -382,14 +396,23 @@ export default function TransactionsPage() {
                       className="max-h-full max-w-full object-contain"
                     />
                   </div>
-                  <a
-                    href={attachmentUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-xs font-bold text-primary hover:underline"
-                  >
-                    Buka Gambar di Tab Baru
-                  </a>
+                  <div className="flex gap-4 items-center">
+                    <a
+                      href={attachmentUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs font-bold text-sky-400 hover:underline"
+                    >
+                      Buka Gambar
+                    </a>
+                    <button
+                      type="button"
+                      onClick={handleDeleteReceipt}
+                      className="text-xs font-bold text-rose-400 hover:underline"
+                    >
+                      Hapus Gambar
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <form onSubmit={handleReceiptUpload} className="flex flex-col gap-5">

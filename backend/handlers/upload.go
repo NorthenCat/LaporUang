@@ -140,3 +140,38 @@ func GetTransactionAttachmentHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(att)
 }
+
+// DeleteTransactionAttachmentHandler soft-deletes a transaction's receipt
+func DeleteTransactionAttachmentHandler(w http.ResponseWriter, r *http.Request) {
+	userID, ok := GetUserIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Unauthorized session", http.StatusUnauthorized)
+		return
+	}
+
+	transactionID := chi.URLParam(r, "id")
+	if transactionID == "" {
+		http.Error(w, "Transaction ID required", http.StatusBadRequest)
+		return
+	}
+
+	now := time.Now()
+	res, err := db.DB.Exec(`
+		UPDATE attachments
+		SET deleted_at = $1, updated_at = $1
+		WHERE user_id = $2 AND transaction_id = $3 AND deleted_at IS NULL
+	`, now, userID, transactionID)
+
+	if err != nil {
+		http.Error(w, "Failed to delete attachment: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	rowsAffected, _ := res.RowsAffected()
+	if rowsAffected == 0 {
+		http.Error(w, "Attachment not found or unauthorized", http.StatusNotFound)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
